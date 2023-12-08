@@ -1,9 +1,7 @@
-
-import { Plugin, MarkdownView, PluginSettingTab, App, Setting } from 'obsidian';
+import { Plugin, MarkdownView, PluginSettingTab, App, Setting, TFile } from 'obsidian';
 
 import OpenAI from "openai";
 
-import { TFile } from 'obsidian';
 
 
 interface MyPluginSettings {
@@ -46,17 +44,61 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 }
 
+
 export default class MyPlugin extends Plugin {
 
     settings: MyPluginSettings;
+
+	private ribbonIcon: HTMLElement | null = null;
+
+	private statusMessage: HTMLElement | null = null;
+
+	private showLoader(message: string): void {
+
+		this.ribbonIcon = this.addRibbonIcon('dots-three-horizontal', message, (evt: MouseEvent) => {
+	
+		});
+
+		this.ribbonIcon.addClass('my-plugin-loading');
+
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+
+    if (activeView) {
+
+        this.statusMessage = activeView.containerEl.createDiv('status-message');
+
+        this.statusMessage.setText(`${message} 🕵️`);
+
+    }
+
+}
+
+private hideLoader(): void {
+
+    if (this.ribbonIcon) {
+
+        this.ribbonIcon.remove();
+
+        this.ribbonIcon = null;
+
+    }
+
+
+    if (this.statusMessage) {
+
+        this.statusMessage.remove();
+
+        this.statusMessage = null;
+
+    }
+
+}
+
 
 
     async onload() {
 
         await this.loadSettings();
-
-
-        // Adds the command to the command palette
 
         this.addCommand({
 
@@ -69,14 +111,14 @@ export default class MyPlugin extends Plugin {
         });
 
 
-        // Adds a tab in the settings view
-
         this.addSettingTab(new SettingTab(this.app, this));
 
     }
 
 
-    onunload() { }
+    onunload() { 
+		this.hideLoader();
+	}
 
 
     async loadSettings() {
@@ -85,7 +127,6 @@ export default class MyPlugin extends Plugin {
 
     }
 
-    
 
     async saveSettings() {
 
@@ -97,82 +138,62 @@ export default class MyPlugin extends Plugin {
 	async convertImageToSend() {
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-	
-	
+
 		if (!activeView) {
-	
+
 			console.error('No active markdown view');
-	
+
 			return;
-	
+
 		}
-	
-	
+
 		const editor = activeView.editor;
-	
+
 		const selectedText = editor.getSelection();
-	
-	
+
 		if (!selectedText) {
-	
+
 			console.error('No text selected');
-	
+
 			return;
-	
+
 		}
-	
-	
+
 		const lines = editor.getValue().split('\n');
-	
+
 		const selectedLineNumber = editor.getCursor('from').line;
-	
+
 		let base64Image = '';
-	
-	
-		// Look for the closest image before the selected line
-	
+
 		for (let i = selectedLineNumber - 1; i >= 0; i--) {
-	
+
 			const line = lines[i];
-	
-	
-			// Change the regex pattern to match Obsidian's embed format
-	
+
 			const embedRegex = /!\[\[(.*?)\]\]/;
-	
+
 			const matchResult = line.match(embedRegex);
-	
-	
+
+
 			if (matchResult && matchResult.length > 1) {
-	
-				const filePath = matchResult[1];
-	
-	
+
+				const imagePath = matchResult[1];
+
 				try {
-	
-					base64Image = await this.convertImageToBase64(filePath);
-	
+
+					base64Image = await this.convertImageToBase64(imagePath);
+
 					break;
-	
+
 				} catch (error) {
-	
+
 					console.error('Error while converting image to base64:', error);
-	
+
 					return;
-	
+
 				}
-	
+
 			}
-	
-		}
-	
-	
-		if (!base64Image) {
-	
-			console.error('No image found before selected text.');
-	
-			return;
-	
+
 		}
 
 
@@ -185,11 +206,11 @@ export default class MyPlugin extends Plugin {
         }
 
 
-        // Make the API call
-
         const openai = new OpenAI({ apiKey: this.settings.apiKey, dangerouslyAllowBrowser: true });
 
         try {
+
+			this.showLoader("Eye spy");
 
             const response = await openai.chat.completions.create({
 
@@ -198,18 +219,6 @@ export default class MyPlugin extends Plugin {
 				max_tokens: 500,
 
                 messages: [
-
-					{
-
-                        role: "system",
-
-                        content: [
-
-                            { type: "text", text: "je ben een ervaren jungiaanse analyst. Je bent een expert in het ontrafelen van symboliek uit afbeeldingen" },
-
-                        ],
-
-                    },
 
 					{
 
@@ -239,14 +248,17 @@ export default class MyPlugin extends Plugin {
 
             });
 
-            console.log(response.choices[0].message.content);
+			console.log(response.choices[0].message.content);
 
-			this.insertTextBelowSelection(editor, `${response.choices[0].message.content}\n`);
+			this.insertTextBelowSelection(editor, `${response.choices[0].message.content} \n`);
 
 		} catch (error) {
-	
+
 			console.error('API call failed:', error);
-	
+
+		}finally {
+
+			this.hideLoader();
 		}
 
     }
@@ -254,39 +266,38 @@ export default class MyPlugin extends Plugin {
 
 	insertTextBelowSelection(editor: CodeMirror.Editor, textToInsert: string): void {
 
-		const cursor = editor.getCursor('to'); // Get the ending cursor position of the selection (or current cursor position)
-	
+		const cursor = editor.getCursor('to');
+
 		if (cursor.line === editor.lastLine()) {
-	
-			// If already on the last line, add a newline before inserting
-	
+
 			editor.replaceRange(`\n${textToInsert}`, cursor);
-	
+
 		} else {
-	
-			// Otherwise, insert directly below the current line
-	
-			const position = { line: cursor.line + 1, ch: 0 }; // Position at the beginning of the line after the selection
-	
-			editor.replaceRange(`${textToInsert}\n`, position); // Add a newline after the inserted text to separate from following content
-	
+
+			const position = { line: cursor.line + 1, ch: 0 };
+
+			editor.replaceRange(`${textToInsert}\n`, position);
+
 		}
-	
-		editor.setCursor({ line: cursor.line + 1, ch: 0 }); // Place cursor after newly inserted text
-	
+
+		editor.setCursor({ line: cursor.line + 1, ch: 0 });
+
 	}
 
 
-	async convertImageToBase64(filePath: string): Promise<string> {
+	async convertImageToBase64(imagePath: string): Promise<string> {
 
-		const file = this.app.vault.getAbstractFileByPath(filePath) as TFile | null;
-	
-	
-		if (file && file instanceof TFile) {
-	
+		let file = this.app.vault.getAbstractFileByPath(imagePath);
+
+		if (!file) {
+
+			file = this.app.metadataCache.getFirstLinkpathDest(imagePath, '');
+
+		}
+
+		if (file instanceof TFile) {
+
 			const arrayBuffer = await this.app.vault.readBinary(file);
-	
-			// Use the newly added function to convert the array buffer to Base64
 	
 			const base64String = arrayBufferToBase64(arrayBuffer);
 	
@@ -296,7 +307,7 @@ export default class MyPlugin extends Plugin {
 	
 		} else {
 	
-			throw new Error(`No file found at path "${filePath}".`);
+			throw new Error(`No file found for image path "${imagePath}".`);
 	
 		}
 	
@@ -312,8 +323,6 @@ export default class MyPlugin extends Plugin {
 			'jpeg': 'image/jpeg',
 	
 			'png': 'image/png',
-	
-			// Add other file types as needed
 	
 		};
 	
