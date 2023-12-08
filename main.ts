@@ -1,134 +1,412 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
+import { Plugin, MarkdownView, PluginSettingTab, App, Setting } from 'obsidian';
+
+import OpenAI from "openai";
+
+import { TFile } from 'obsidian';
+
 
 interface MyPluginSettings {
-	mySetting: string;
+
+    apiKey: string;
+
+    maxTokens: number; 
+
+    model: string; 
+
 }
 
+
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+
+    apiKey: '',
+
+    maxTokens: 500, 
+
+    model: "gpt-4-vision-preview", 
+
+}
+
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+
+    let binary = '';
+
+    const bytes = new Uint8Array(buffer);
+
+    const len = bytes.byteLength;
+
+    for (let i = 0; i < len; i++) {
+
+        binary += String.fromCharCode(bytes[i]);
+
+    }
+
+    return window.btoa(binary);
+
 }
 
 export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
 
-	async onload() {
-		await this.loadSettings();
+    settings: MyPluginSettings;
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+    async onload() {
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+        await this.loadSettings();
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+
+        // Adds the command to the command palette
+
+        this.addCommand({
+
+            id: 'Use_Aeye_selected_text',
+
+            name: 'Use Aeye with selected text as prompt',
+
+            callback: () => this.convertImageToSend(),
+
+        });
+
+
+        // Adds a tab in the settings view
+
+        this.addSettingTab(new SettingTab(this.app, this));
+
+    }
+
+
+    onunload() { }
+
+
+    async loadSettings() {
+
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+    }
+
+    
+
+    async saveSettings() {
+
+        await this.saveData(this.settings);
+
+    }
+
+
+	async convertImageToSend() {
+
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+	
+	
+		if (!activeView) {
+	
+			console.error('No active markdown view');
+	
+			return;
+	
+		}
+	
+	
+		const editor = activeView.editor;
+	
+		const selectedText = editor.getSelection();
+	
+	
+		if (!selectedText) {
+	
+			console.error('No text selected');
+	
+			return;
+	
+		}
+	
+	
+		const lines = editor.getValue().split('\n');
+	
+		const selectedLineNumber = editor.getCursor('from').line;
+	
+		let base64Image = '';
+	
+	
+		// Look for the closest image before the selected line
+	
+		for (let i = selectedLineNumber - 1; i >= 0; i--) {
+	
+			const line = lines[i];
+	
+	
+			// Change the regex pattern to match Obsidian's embed format
+	
+			const embedRegex = /!\[\[(.*?)\]\]/;
+	
+			const matchResult = line.match(embedRegex);
+	
+	
+			if (matchResult && matchResult.length > 1) {
+	
+				const filePath = matchResult[1];
+	
+	
+				try {
+	
+					base64Image = await this.convertImageToBase64(filePath);
+	
+					break;
+	
+				} catch (error) {
+	
+					console.error('Error while converting image to base64:', error);
+	
+					return;
+	
 				}
+	
 			}
-		});
+	
+		}
+	
+	
+		if (!base64Image) {
+	
+			console.error('No image found before selected text.');
+	
+			return;
+	
+		}
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+        if (!base64Image) {
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+            console.error('No image found above selected text');
+
+            return;
+
+        }
+
+
+        // Make the API call
+
+        const openai = new OpenAI({ apiKey: this.settings.apiKey, dangerouslyAllowBrowser: true });
+
+        try {
+
+            const response = await openai.chat.completions.create({
+
+                model: "gpt-4-vision-preview",
+
+				max_tokens: 500,
+
+                messages: [
+
+					{
+
+                        role: "system",
+
+                        content: [
+
+                            { type: "text", text: "je ben een ervaren jungiaanse analyst. Je bent een expert in het ontrafelen van symboliek uit afbeeldingen" },
+
+                        ],
+
+                    },
+
+					{
+
+                        role: "user",
+
+                        content: [
+
+                            { type: "text", text: selectedText },
+
+                            {
+
+                                type: "image_url",
+
+                                image_url: {
+
+                                    "url": base64Image,
+
+                                },
+
+                            },
+
+                        ],
+
+                    },
+
+                ],
+
+            });
+
+            console.log(response.choices[0].message.content);
+
+			this.insertTextBelowSelection(editor, `${response.choices[0].message.content}\n`);
+
+		} catch (error) {
+	
+			console.error('API call failed:', error);
+	
+		}
+
+    }
+
+
+	insertTextBelowSelection(editor: CodeMirror.Editor, textToInsert: string): void {
+
+		const cursor = editor.getCursor('to'); // Get the ending cursor position of the selection (or current cursor position)
+	
+		if (cursor.line === editor.lastLine()) {
+	
+			// If already on the last line, add a newline before inserting
+	
+			editor.replaceRange(`\n${textToInsert}`, cursor);
+	
+		} else {
+	
+			// Otherwise, insert directly below the current line
+	
+			const position = { line: cursor.line + 1, ch: 0 }; // Position at the beginning of the line after the selection
+	
+			editor.replaceRange(`${textToInsert}\n`, position); // Add a newline after the inserted text to separate from following content
+	
+		}
+	
+		editor.setCursor({ line: cursor.line + 1, ch: 0 }); // Place cursor after newly inserted text
+	
 	}
 
-	onunload() {
 
-	}
+	async convertImageToBase64(filePath: string): Promise<string> {
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const file = this.app.vault.getAbstractFileByPath(filePath) as TFile | null;
+	
+	
+		if (file && file instanceof TFile) {
+	
+			const arrayBuffer = await this.app.vault.readBinary(file);
+	
+			// Use the newly added function to convert the array buffer to Base64
+	
+			const base64String = arrayBufferToBase64(arrayBuffer);
+	
+			const mimeType = this.getMimeType(file.extension);
+	
+			return `data:${mimeType};base64,${base64String}`;
+	
+		} else {
+	
+			throw new Error(`No file found at path "${filePath}".`);
+	
+		}
+	
 	}
+	
+	
+	getMimeType(extension: string): string {
+	
+		const mimeTypes: { [key: string]: string } = {
+	
+			'jpg': 'image/jpeg',
+	
+			'jpeg': 'image/jpeg',
+	
+			'png': 'image/png',
+	
+			// Add other file types as needed
+	
+		};
+	
+		return mimeTypes[extension.toLowerCase()] || 'application/octet-stream';
+	
+	}
+	
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+class SettingTab extends PluginSettingTab {
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+    plugin: MyPlugin;
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+    constructor(app: App, plugin: MyPlugin) {
 
-	display(): void {
-		const {containerEl} = this;
+        super(app, plugin);
 
-		containerEl.empty();
+        this.plugin = plugin;
 
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+    }
+
+
+    display(): void {
+
+        const { containerEl } = this;
+
+
+        containerEl.empty();
+
+
+        containerEl.createEl('h2', { text: 'Settings for MyPlugin' });
+
+
+        new Setting(containerEl)
+
+            .setName('API Key')
+
+            .setDesc('Enter your OpenAI API Key')
+
+            .addText(text => text
+
+                .setPlaceholder('Enter your key')
+
+                .setValue(this.plugin.settings.apiKey)
+
+                .onChange(async (value) => {
+
+                    this.plugin.settings.apiKey = value;
+
+                    await this.plugin.saveSettings();
+
+                }));
+                
+        new Setting(containerEl)
+
+            .setName('Max Tokens')
+
+            .setDesc('Maximum number of tokens to generate.')
+
+            .addText(text => text
+
+                .setValue(String(this.plugin.settings.maxTokens))
+
+                .onChange(async (value) => {
+
+                    this.plugin.settings.maxTokens = parseInt(value) || 500;
+
+                    await this.plugin.saveSettings();
+
+                }));
+
+
+        new Setting(containerEl)
+
+            .setName('OpenAI Model')
+
+            .setDesc('The model to use for completions.')
+
+            .addText(text => text
+
+                .setValue(this.plugin.settings.model)
+
+                .onChange(async (value) => {
+
+                    this.plugin.settings.model = value.trim();
+
+                    await this.plugin.saveSettings();
+
+                }));        
+
+    }
+
 }
