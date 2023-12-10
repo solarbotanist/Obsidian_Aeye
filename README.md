@@ -34,7 +34,7 @@ Here's how to summon the AI genies:
 
 1. Install Aeye Plugin from the Obsidian community plugins.
 
-2. Navigate to Settings > Aeye Plugin and pour in your OpenAI API key essence (required to awaken the AI spirit).
+2. Navigate to Settings > Aeye Plugin and enter OpenAI API key .
 
 3. Set your spell's power level by adjusting the maximum amount of tokens (choose wisely to preserve the AI's energy!).
 
@@ -61,13 +61,3 @@ Here's how to summon the AI genies:
 📏 **Maximum Token Count:** Throttle the verbosity of the returned text—keep your genies from exhausting themselves!
 
 
-## Contributions
-
-
-Fancy weaving in more enchantments? Open a pull request in the ancient repository of GitHub!
-
-
-## Support
-
-
-Struck with a curse or in need of a magic consultation? Raise an issue on the repository, and we'll send our finest wizards.
