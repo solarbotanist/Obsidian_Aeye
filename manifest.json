@@ -1,11 +1,10 @@
 {
-	"id": "Aeye",
+	"id": "aeye",
 	"name": "Aeye",
 	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Make use of OpenAI's vision model",
 	"author": "SolarBotanist",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"authorUrl": "https://github.com/solarbotanist",
 	"isDesktopOnly": true
 }
